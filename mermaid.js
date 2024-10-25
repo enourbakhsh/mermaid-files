@@ -50441,17 +50441,23 @@ ${text2}</tr>
         throw new Error(`Cannot parse RGBA values from color '${color2}'`);
       }
     }, "getRGBA");
-    const interpolateColor = /* @__PURE__ */ __name((start3, end2, pos, hint) => {
+    const interpolateColor = /* @__PURE__ */ __name((start3, end2, pos, hint = 0.5) => {
       let C2 = hint > 0 ? Math.pow(pos, Math.log(0.5) / Math.log(hint)) : 1;
-      const r2 = Math.round(mix2(start3.r, end2.r, C2));
-      const g2 = Math.round(mix2(start3.g, end2.g, C2));
-      const b2 = Math.round(mix2(start3.b, end2.b, C2));
+      C2 = Math.min(Math.max(C2, 0), 1);
+      let r2 = mix2(start3.r * start3.a, end2.r * end2.a, C2);
+      let g2 = mix2(start3.g * start3.a, end2.g * end2.a, C2);
+      let b2 = mix2(start3.b * start3.a, end2.b * end2.a, C2);
       const a2 = mix2(start3.a, end2.a, C2);
+      if (a2 !== 0) {
+        r2 = Math.round(r2 / a2);
+        g2 = Math.round(g2 / a2);
+        b2 = Math.round(b2 / a2);
+      }
       return `rgba(${r2}, ${g2}, ${b2}, ${a2})`;
     }, "interpolateColor");
     const generateStops = /* @__PURE__ */ __name((start3, hint, end2, total) => {
-      if (total % 2 === 0) {
-        throw new Error("Total number of stops must be odd for symmetry.");
+      if (total < 0 && total % 2 === 0) {
+        throw new Error("Total number of stops must be positive and odd for symmetry.");
       }
       const half = (total - 1) / 2;
       return [
@@ -50464,29 +50470,58 @@ ${text2}</tr>
       ];
     }, "generateStops");
     colorStops.forEach((currentStop, index) => {
-      if (currentStop.color.startsWith("HINT")) {
+      const nextStop = colorStops[index + 1];
+      let startColor = getRGBA(currentStop.color);
+      const endColor = nextStop ? getRGBA(nextStop.color) : void 0;
+      if (endColor && nextStop.color !== "HINT" && (startColor.a !== endColor.a || currentStop.color === "HINT")) {
         const prevStop = colorStops[index - 1];
-        const nextStop = colorStops[index + 1];
-        if (currentStop.position >= nextStop.position) {
-          linearGradient.append("stop").attr("offset", `${currentStop.position}%`).attr("stop-color", prevStop.color);
-          log.debug(
-            `Added stop #${index + 1} to <linearGradient> using the previous color since the transition hint's position is not less than the position of the next stop: color = '${prevStop.color}', position = '${currentStop.position}%'`
-          );
+        const nTransitionStops = 5;
+        let relativeHint = 0.5;
+        let totalInterval = nextStop.position - currentStop.position;
+        let absoluteStartPos = currentStop.position;
+        if (currentStop.color === "HINT") {
+          if (currentStop.position == prevStop.position) {
+            linearGradient.append("stop").attr("offset", `${currentStop.position}%`).attr("stop-color", nextStop.color);
+            log.debug(
+              `Added stop #${index + 1} to <linearGradient> using the next color since the transition hint's position is not more than the position of the previous stop: color = '${nextStop.color}', position = '${currentStop.position}%'`
+            );
+            return;
+          }
+          if (currentStop.position == nextStop.position) {
+            linearGradient.append("stop").attr("offset", `${currentStop.position}%`).attr("stop-color", prevStop.color);
+            log.debug(
+              `Added stop #${index + 1} to <linearGradient> using the previous color since the transition hint's position is not less than the position of the next stop: color = '${prevStop.color}', position = '${currentStop.position}%'`
+            );
+            return;
+          }
+          startColor = getRGBA(prevStop.color);
+          totalInterval = nextStop.position - prevStop.position;
+          relativeHint = (currentStop.position - prevStop.position) / totalInterval;
+          absoluteStartPos = prevStop.position;
+        }
+        if (currentStop.position == nextStop.position) {
+          [currentStop, nextStop].forEach((stop5) => {
+            linearGradient.append("stop").attr("offset", `${stop5.position}%`).attr("stop-color", stop5.color);
+            log.debug(
+              `Added stop #${index + 1} to <linearGradient> (no interpolation needed with the adjacent stop because the positions are the same): color = '${stop5.color}', position = '${stop5.position}%'`
+            );
+          });
           return;
         }
-        const startColor = getRGBA(prevStop.color);
-        const endColor = getRGBA(nextStop.color);
-        const nTransitionStops = 5;
-        const totalInterval = nextStop.position - prevStop.position;
-        const relativeHint = (currentStop.position - prevStop.position) / totalInterval;
         const interpolatedRelativePositions = generateStops(0, relativeHint, 1, nTransitionStops);
         interpolatedRelativePositions.forEach((relativePos, hintIndex) => {
-          const absolutePos = prevStop.position + relativePos * totalInterval;
+          const absolutePos = absoluteStartPos + relativePos * totalInterval;
           const interpolatedColor = interpolateColor(startColor, endColor, relativePos, relativeHint);
           linearGradient.append("stop").attr("offset", `${absolutePos}%`).attr("stop-color", interpolatedColor);
-          log.debug(
-            `Added interpolated transition stop ${hintIndex + 1}/${nTransitionStops} for hint between colors ${prevStop.color} and ${nextStop.color} to <linearGradient>: color (interpolated) = '${interpolatedColor}', position (interpolated) = '${absolutePos}%'`
-          );
+          if (currentStop.color === "HINT") {
+            log.debug(
+              `Added interpolated transition stop ${hintIndex + 1}/${nTransitionStops} for hint between colors ${prevStop.color} and ${nextStop.color} to <linearGradient>: color (interpolated) = '${interpolatedColor}', position (interpolated) = '${absolutePos}%'`
+            );
+          } else {
+            log.debug(
+              `Added interpolated transition stop ${hintIndex + 1}/${nTransitionStops} for (semi-)transparency in colors ${currentStop.color} and/or ${nextStop.color} to <linearGradient>: color (interpolated) = '${interpolatedColor}', position (interpolated) = '${absolutePos}%'`
+            );
+          }
         });
       } else {
         linearGradient.append("stop").attr("offset", `${currentStop.position}%`).attr("stop-color", currentStop.color);
@@ -50609,7 +50644,8 @@ ${text2}</tr>
               }
               const linearGradientStyles = vertex.cssCompiledStyles?.join("")?.match(/fill\s*:\s*linear-gradient\([^()]*?(?:\([^()]*?\)[^()]*)*\)/g);
               if (linearGradientStyles) {
-                shapeElement.style("fill", null);
+                shapeElement.style("fill", "none");
+                shapeElement.style("mix-blend-mode", "normal");
                 linearGradientStyles.forEach((style3, index) => {
                   log.debug(`Found gradient style ${index + 1} for node ${vertex.id}: "${style3}"`);
                   const linearGradientStyle = style3.replace(/fill\s*:\s*linear-gradient\((.+)\)/, "$1");
