@@ -50470,8 +50470,8 @@ ${text2}</tr>
       ];
     }, "generateStops");
     colorStops.forEach((currentStop, index) => {
-      const nextStop = colorStops[index + 1];
       let startColor = getRGBA(currentStop.color);
+      const nextStop = colorStops[index + 1];
       const endColor = nextStop ? getRGBA(nextStop.color) : void 0;
       if (endColor && nextStop.color !== "HINT" && (startColor.a !== endColor.a || currentStop.color === "HINT")) {
         const prevStop = colorStops[index - 1];
